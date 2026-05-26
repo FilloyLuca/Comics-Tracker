@@ -3,6 +3,10 @@ https://filloyluca.github.io/Comics-Tracker/
 
 <img src="https://img.shields.io/badge/version-1.4.2-yellow?style=for-the-badge">
 <img src="https://img.shields.io/badge/langue-Fran%C3%A7ais-blue?style=for-the-badge&logo=data:image/png;base64,">
+<img src="https://img.shields.io/badge/plateforme-iOS-black?style=for-the-badge&logo=apple">
+<img src="https://img.shields.io/badge/Tachimanga-compatible-orange?style=for-the-badge">
+<img src="https://img.shields.io/badge/contenu-Marvel%20%7C%20DC%20%7C%20Ind%C3%A9pendants-red?style=for-the-badge">
+<img src="https://img.shields.io/badge/licence-Non%20officiel-lightgrey?style=for-the-badge">
 
 
 Extension non officielle pour lire les comics VF depuis [comics-tracker.net](https://comics-tracker.net) dans l'app **Tachimanga** (iOS).
