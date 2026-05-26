@@ -1,6 +1,8 @@
 # Comics Tracker — Extension Tachimanga
 https://filloyluca.github.io/Comics-Tracker/
 
+https://img.shields.io/badge/version-1.4.2-yellow?style=for-the-badge
+
 Extension non officielle pour lire les comics VF depuis [comics-tracker.net](https://comics-tracker.net) dans l'app **Tachimanga** (iOS).
 
 Contenu disponible : Marvel, DC Comics, indépendants (Invincible, The Boys, etc.) — entièrement en **français (VF)**.
