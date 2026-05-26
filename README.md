@@ -1,7 +1,7 @@
 # Comics Tracker — Extension Tachimanga
 https://filloyluca.github.io/Comics-Tracker/
 
-https://img.shields.io/badge/version-1.4.2-yellow?style=for-the-badge
+<img src="https://img.shields.io/badge/Status-En%20ligne-success?style=for-the-badge">
 
 Extension non officielle pour lire les comics VF depuis [comics-tracker.net](https://comics-tracker.net) dans l'app **Tachimanga** (iOS).
 
