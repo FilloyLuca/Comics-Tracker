@@ -1,0 +1,6 @@
+ext {
+    extName = 'Comics Tracker'
+    extClass = '.ComicsTracker'
+    extVersionCode = 2
+}
+apply plugin: "kei.plugins.extension.legacy"
