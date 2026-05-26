@@ -38,11 +38,7 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/main/index.min.json
 
 ---
 
-Changelog
-v1.4.2 (actuelle)
-
-Correction du bouton de redirection web — pointe maintenant vers la bonne page du comic
-Amélioration de la navigation entre les séries
+## Changelog
 
 v1.4.1
 
@@ -50,6 +46,11 @@ Version initiale
 Liste et recherche de séries
 Lecture des comics VF disponibles
 Sauvegarde en bibliothèque
+
+v1.4.2 (actuelle)
+
+Correction du bouton de redirection web — pointe maintenant vers la bonne page du comic
+Amélioration de la navigation entre les séries
 
 ---
 
