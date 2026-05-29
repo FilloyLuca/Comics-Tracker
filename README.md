@@ -1,5 +1,4 @@
 # Comics Tracker — Extension Tachimanga
-https://filloyluca.github.io/Comics-Tracker/
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.4.4-yellow?style=for-the-badge">
