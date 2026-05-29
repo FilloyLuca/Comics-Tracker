@@ -2,7 +2,7 @@
 https://filloyluca.github.io/Comics-Tracker/
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.3-yellow?style=for-the-badge">
+  <img src="https://img.shields.io/badge/version-1.4.4-yellow?style=for-the-badge">
   <img src="https://img.shields.io/badge/langue-Fran%C3%A7ais-blue?style=for-the-badge&logo=data:image/png;base64,">
   <img src="https://img.shields.io/badge/plateforme-iOS-black?style=for-the-badge&logo=apple">
   <img src="https://img.shields.io/badge/Tachimanga-compatible-orange?style=for-the-badge">
@@ -35,7 +35,7 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/main/index.min.json
 | Fichier | Lien direct |
 |---|---|
 | Index du dépôt | [index.min.json](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/main/index.min.json) |
-| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.3-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/main/tachiyomi-fr.comicstracker-v1.4.3-debug.apk) |
+| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.4-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/main/tachiyomi-fr.comicstracker-v1.4.4-debug.apk) |
 
 ---
 
@@ -62,7 +62,7 @@ Correction du bouton de redirection web — pointe maintenant vers la bonne page
 
 Amélioration de la navigation entre les séries
 
-v1.4.3 (actuelle)
+v1.4.3
 
 Correction majeure de la lecture des pages — utilisation de l'API /r2/list pour récupérer la liste exacte des pages
 
@@ -71,6 +71,10 @@ Tous les formats de pages sont maintenant supportés (P00001.jpg, 001/001.jpg, p
 Correction des comics comme The Boys qui n'affichaient pas leurs pages correctement
 
 Plus de limite arbitraire à 200 pages — le nombre exact de pages est récupéré depuis le serveur
+
+v1.4.4 (actuelle)
+
+Correction de la recherche — les résultats sont maintenant trouvés sur toutes les pages de l'API, pas uniquement la première
 
 ---
 
