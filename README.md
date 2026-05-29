@@ -35,7 +35,7 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/main/index.min.json
 | Fichier | Lien direct |
 |---|---|
 | Index du dépôt | [index.min.json](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/main/index.min.json) |
-| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.1-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/main/tachiyomi-fr.comicstracker-v1.4.3-debug.apk) |
+| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.3-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/main/tachiyomi-fr.comicstracker-v1.4.3-debug.apk) |
 
 ---
 
@@ -59,13 +59,17 @@ Sauvegarde en bibliothèque
 v1.4.2
 
 Correction du bouton de redirection web — pointe maintenant vers la bonne page du comic
+
 Amélioration de la navigation entre les séries
 
 v1.4.3 (actuelle)
 
 Correction majeure de la lecture des pages — utilisation de l'API /r2/list pour récupérer la liste exacte des pages
+
 Tous les formats de pages sont maintenant supportés (P00001.jpg, 001/001.jpg, pages doubles 003-004/003-004.jpg...)
+
 Correction des comics comme The Boys qui n'affichaient pas leurs pages correctement
+
 Plus de limite arbitraire à 200 pages — le nombre exact de pages est récupéré depuis le serveur
 
 ---
