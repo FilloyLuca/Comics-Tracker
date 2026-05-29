@@ -80,5 +80,4 @@ Correction de la recherche — les résultats sont maintenant trouvés sur toute
 ## Remarques
 
 - Extension en cours de développement
-- Les pages sont générées jusqu'à 200 par tome (les 404 sont ignorées automatiquement)
 - La recherche fonctionne par nom de série
