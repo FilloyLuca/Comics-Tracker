@@ -1,7 +1,7 @@
 # Comics Tracker — Extension Tachimanga
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.9-yellow?style=for-the-badge">
+  <img src="https://img.shields.io/badge/version-1.4.11-yellow?style=for-the-badge">
   <img src="https://img.shields.io/badge/langue-Fran%C3%A7ais-blue?style=for-the-badge&logo=apple">
   <img src="https://img.shields.io/badge/plateforme-iOS-black?style=for-the-badge&logo=apple">
   <img src="https://img.shields.io/badge/Tachimanga-compatible-orange?style=for-the-badge">
@@ -33,7 +33,7 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 | Fichier | Lien direct |
 |---|---|
 | Index du dépôt | [index.min.json](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json) |
-| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.9-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/apk/tachiyomi-fr.comicstracker-v1.4.9-debug.apk) |
+| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.11-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/apk/tachiyomi-fr.comicstracker-v1.4.11-debug.apk) |
 
 ---
 
@@ -47,7 +47,17 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 
 ## Changelog
 
-### v1.4.9 (actuelle)
+### v1.4.11 (actuelle)
+- Correction de la recherche textuelle — les comics de type "run" (sagas d'auteur comme Spider-Man par Dan Slott) sont maintenant trouvés via une recherche parallèle dans `/api/french-editions`
+- Suppression du timeout de recherche — les deux sources (`/api/series` et `/api/french-editions`) sont interrogées simultanément
+
+### v1.4.10
+- Ajout du support complet des **runs** (sagas d'auteur) — ex: Spider-Man par Dan Slott, Avengers par Bendis
+- Détection automatique du `source_type` : les runs utilisent `/api/runs/{runId}` au lieu de `/api/series/{id}/issues`
+- Correction de `mangaDetailsRequest` et `chapterListRequest` pour les comics filtrés par période/éditeur (erreur 404)
+- Les deux structures de données sont maintenant supportées : `frenchEditions[]` (séries) et `sections[].frenchEditions[]` (runs)
+
+### v1.4.9
 - Correction de la lecture des pages — les URLs d'images sont maintenant correctement encodées (`%20`, `%5B`, `%5D`)
 - Correction du bouton "Ouvrir dans le navigateur" — pointe maintenant vers la vraie page de lecture (`/read?mode=server&driveLink=…`) au lieu d'une URL cassée
 
@@ -91,5 +101,6 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 ## Remarques
 
 - Seuls les comics disposant d'une **édition française** sur comics-tracker.net sont lisibles — les séries sans VF affichent un message explicatif
-- La recherche fonctionne par nom de série
+- La recherche fonctionne par nom de série ou de tome — les résultats proviennent à la fois des séries classiques et des sagas d'auteur (runs)
+- Les **runs** (sagas d'auteur comme Spider-Man par Dan Slott) affichent tous les tomes de la saga en un seul titre
 - Extension non officielle, non affiliée à comics-tracker.net
