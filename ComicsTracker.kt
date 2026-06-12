@@ -500,7 +500,11 @@ class ComicsTracker : HttpSource() {
         }
 
         val link = chapter.url.removePrefix("/reader/")
-        val encodedPrefix = java.net.URLEncoder.encode(link, "UTF-8")
+        val encodedPrefix = link
+            .replace(" ", "%20")
+            .replace("[", "%5B")
+            .replace("]", "%5D")
+            .replace(":", "%3A")
         return GET("$apiUrl/api/r2/list?prefix=$encodedPrefix", headers)
     }
 
@@ -523,7 +527,7 @@ class ComicsTracker : HttpSource() {
             }
             .sorted()
             .mapIndexed { index, path ->
-                Page(index, "", "$imagesUrl/$path")
+                Page(index, "", "$imagesUrl/${path.replace(" ", "%20").replace("[", "%5B").replace("]", "%5D")}")
             }
     }
 
@@ -536,7 +540,11 @@ class ComicsTracker : HttpSource() {
         }
 
         val link = chapter.url.removePrefix("/reader/")
-        val encodedPrefix = java.net.URLEncoder.encode(link, "UTF-8")
+        val encodedPrefix = link
+            .replace(" ", "%20")
+            .replace("[", "%5B")
+            .replace("]", "%5D")
+            .replace(":", "%3A")
         return client.newCall(GET("$apiUrl/api/r2/list?prefix=$encodedPrefix", headers))
             .asObservableSuccess()
             .map { response -> pageListParse(response) }
@@ -569,7 +577,9 @@ class ComicsTracker : HttpSource() {
     override fun getChapterUrl(chapter: SChapter): String = if (chapter.url.startsWith("/article/")) {
         "$baseUrl/articles/${chapter.url.removePrefix("/article/")}"
     } else {
+        // Fallback vers la page d'accueil du site si le lien est incertain
         val link = chapter.url.removePrefix("/reader/")
-        "$baseUrl/issue/$link"
+        val encodedLink = link.replace(" ", "%20").replace("[", "%5B").replace("]", "%5D").replace(":", "%3A")
+        "$baseUrl/read?mode=server&driveLink=$encodedLink"
     }
 }
