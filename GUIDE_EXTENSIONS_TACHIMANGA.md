@@ -122,6 +122,8 @@ Avant de coder, il faut comprendre la structure du site. Ouvrir les DevTools (F1
 ### Pour Comics Tracker
 - Liste des séries : `https://api.comics-tracker.net/api/series?page=N` → retourne un tableau JSON d'IDs
 - Détails d'une série : `https://api.comics-tracker.net/api/series/{id}/issues` → retourne `frenchEditions`
+- Liste des éditions par période : `https://api.comics-tracker.net/api/french-editions?periodName={id}` → retourne toutes les éditions (séries ET runs) avec `source_type`
+- Détails d'un run (saga d'auteur) : `https://api.comics-tracker.net/api/runs/{runId}` → retourne `sections[].frenchEditions`
 - Liste des pages d'un chapitre : `https://api.comics-tracker.net/api/r2/list?prefix={link}` → retourne un tableau JSON de chemins complets
 - Images de lecture : `https://images.comics-tracker.net/{chemin_complet}` (chemin issu de `/api/r2/list`)
 - Couvertures : `https://api.comics-tracker.net/api/issues/{id}?w=400`
@@ -129,6 +131,11 @@ Avant de coder, il faut comprendre la structure du site. Ouvrir les DevTools (F1
 > ⚠️ `/api/issues/{id}` sans paramètre retourne directement l'image de couverture, pas du JSON. Ne pas appeler cet endpoint pour récupérer des métadonnées.
 
 > ⚠️ Le champ `link` du JSON (ex: `comics/marvel/.../Secret_Wars_1/`) est seulement le **préfixe** du dossier. Les chemins complets avec sous-dossiers (ex: `[Comics Fr]Secret Wars - 001/`) sont uniquement disponibles via `/api/r2/list`.
+
+> ⚠️ Il existe deux types de contenu distincts dans Comics Tracker :
+> - `source_type: "edition"` → série classique, gérée via `/api/series/{id}/issues` → structure `frenchEditions[]`
+> - `source_type: "run"` → saga d'auteur, gérée via `/api/runs/{runId}` → structure `sections[].frenchEditions[]`
+> Le `runId` s'extrait depuis le champ `link` : segment après `/runs/` en lowercase avec underscores.
 
 ---
 
@@ -352,6 +359,52 @@ override fun getChapterUrl(chapter: SChapter): String = if (chapter.url.startsWi
 
 > 🔥 **Version brûlée — Comics Tracker** : la version **1.4.8** a été publiée avec un bug (encodage URL cassé). Elle ne peut pas être réutilisée. La version suivante valide est la **1.4.9**.
 
+### ❌ Comics de type "run" (saga d'auteur) non trouvés ou erreur 404
+**Cause** : Les runs (ex: Spider-Man par Dan Slott) n'utilisent pas `/api/series/{id}/issues` mais `/api/runs/{runId}` avec une structure différente (`sections[].frenchEditions` au lieu de `frenchEditions`). L'extension traitait tous les comics comme des séries classiques.
+**Solution** : Détecter le `source_type` dans les réponses de `/api/french-editions` et router différemment :
+```kotlin
+val sourceType = edition["source_type"]?.jsonPrimitive?.content ?: ""
+val runId = if (sourceType == "run") {
+    link.split("/runs/").getOrNull(1)?.split("/")?.firstOrNull()
+        ?.lowercase()?.replace(" ", "_") ?: ""
+} else ""
+url = if (sourceType == "run") "/run/$runId" else "/reader/$link"
+```
+Stocker `/run/{runId}` dans `manga.url` pour les runs, et adapter `mangaDetailsRequest`, `chapterListRequest`, `mangaDetailsParse` et `chapterListParse` pour gérer les deux structures.
+
+### ❌ `mangaDetailsRequest` / `chapterListRequest` retournent 404 pour les comics via filtres
+**Cause** : Quand un manga vient de `fetchByPeriod` ou `fetchByPublisher`, son `url` est `/reader/comics/marvel/...`. Le code appelait `$baseUrl/reader/...` (page web) au lieu de l'API.
+**Solution** : Extraire le dernier segment du chemin comme `seriesId` et appeler l'API :
+```kotlin
+manga.url.startsWith("/reader/") -> {
+    val parts = manga.url.removePrefix("/reader/").trimEnd('/').split("/")
+    val seriesId = parts.lastOrNull()?.lowercase() ?: ""
+    GET("$apiUrl/api/series/$seriesId/issues", headers)
+}
+```
+
+### ❌ Recherche textuelle timeout pour les comics de type "run"
+**Cause** : La recherche parcourait `/api/series?page=N` en boucle, mais les runs n'y sont pas. Elle tournait jusqu'au timeout.
+**Solution** : Lancer la recherche en parallèle dans `/api/series` ET `/api/french-editions` de toutes les périodes, puis fusionner les résultats :
+```kotlin
+return Observable.zip(seriesSearch, editionsSearch) { fromSeries, fromEditions ->
+    val seen = mutableSetOf<String>()
+    val combined = (fromSeries.mangas + fromEditions.mangas).filter { seen.add(it.url) }
+    MangasPage(combined.sortedBy { it.title }, false)
+}
+```
+
+### ❌ Erreur de compilation `Missing '}'` après modification de `fetchSearchManga`
+**Cause** : Le bloc `// Aucun filtre → liste populaire` a été supprimé accidentellement lors d'une modification, laissant `fetchSearchManga` sans accolade de fermeture.
+**Solution** : S'assurer que la fonction se termine toujours par :
+```kotlin
+        // Aucun filtre → liste populaire
+        return client.newCall(popularMangaRequest(page))
+            .asObservableSuccess()
+            .map { popularMangaParse(it) }
+    }
+```
+
 ---
 
 ## 10. Erreurs à ne jamais faire
@@ -370,8 +423,13 @@ override fun getChapterUrl(chapter: SChapter): String = if (chapter.url.startsWi
 | Construire l'URL d'image avec un pattern fixe (`P00001.jpg`) | Récupérer les chemins complets via `/api/r2/list` |
 | Réutiliser un numéro de version déjà publié | Toujours incrémenter — un numéro brûlé est inutilisable |
 | Revenir à une version antérieure dans `index.min.json` | Toujours aller vers l'avant (ex: 1.4.8 brûlée → passer à 1.4.9) |
+| Appeler `/api/series/{id}/issues` pour un comic de type `run` | Détecter `source_type` et appeler `/api/runs/{runId}` |
+| Parser `frenchEditions` directement pour tous les comics | Vérifier si la réponse contient `sections` (runs) ou `frenchEditions` (séries) |
+| Chercher les runs uniquement dans `/api/series` | Chercher en parallèle dans `/api/series` ET `/api/french-editions` |
+| Supprimer le bloc `// Aucun filtre` en bas de `fetchSearchManga` | Toujours conserver le fallback vers `popularMangaRequest` |
 
 ---
 
 *Guide rédigé suite à la création de l'extension Comics Tracker — Mai 2026*
 *Mis à jour suite au débogage de l'encodage URL et des chemins d'images — Juin 2026*
+*Mis à jour suite à l'ajout du support des runs (sagas d'auteur) et correction de la recherche — Juin 2026*
