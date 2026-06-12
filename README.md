@@ -1,7 +1,7 @@
 # Comics Tracker — Extension Tachimanga
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.7-yellow?style=for-the-badge">
+  <img src="https://img.shields.io/badge/version-1.4.9-yellow?style=for-the-badge">
   <img src="https://img.shields.io/badge/langue-Fran%C3%A7ais-blue?style=for-the-badge&logo=apple">
   <img src="https://img.shields.io/badge/plateforme-iOS-black?style=for-the-badge&logo=apple">
   <img src="https://img.shields.io/badge/Tachimanga-compatible-orange?style=for-the-badge">
@@ -33,7 +33,7 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 | Fichier | Lien direct |
 |---|---|
 | Index du dépôt | [index.min.json](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json) |
-| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.7-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/apk/tachiyomi-fr.comicstracker-v1.4.7-debug.apk) |
+| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.9-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/apk/tachiyomi-fr.comicstracker-v1.4.9-debug.apk) |
 
 ---
 
@@ -47,7 +47,15 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 
 ## Changelog
 
-### v1.4.7 (actuelle)
+### v1.4.9 (actuelle)
+- Correction de la lecture des pages — les URLs d'images sont maintenant correctement encodées (`%20`, `%5B`, `%5D`)
+- Correction du bouton "Ouvrir dans le navigateur" — pointe maintenant vers la vraie page de lecture (`/read?mode=server&driveLink=…`) au lieu d'une URL cassée
+
+### v1.4.8 (🔥 brûlée — ne pas utiliser)
+- Version publiée avec un bug d'encodage URL — les images ne se chargeaient pas sur certains comics (ex: Secret Wars: Marvel Zombies)
+- Numéro de version inutilisable, sauté directement en 1.4.9
+
+### v1.4.7
 - Ajout des **Articles & Guides** — accessibles via le filtre "Type de contenu"
 - Chaque article s'affiche avec un aperçu et un lien vers comics-tracker.net
 
