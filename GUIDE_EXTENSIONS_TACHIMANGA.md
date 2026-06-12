@@ -118,14 +118,17 @@ Avant de coder, il faut comprendre la structure du site. Ouvrir les DevTools (F1
 2. **Comment sont listées les séries ?** → URL de la page catalogue
 3. **Comment sont listés les chapitres ?** → Structure de la page d'une série
 4. **Comment sont chargées les images ?** → Inspecter les balises `<img>` sur la page de lecture
-5. **Le site utilise-t-il un endpoint de listing des fichiers ?** → Inspecter l'onglet Network → Fetch/XHR dans les DevTools pendant la lecture
 
 ### Pour Comics Tracker
 - Liste des séries : `https://api.comics-tracker.net/api/series?page=N` → retourne un tableau JSON d'IDs
 - Détails d'une série : `https://api.comics-tracker.net/api/series/{id}/issues` → retourne `frenchEditions`
-- Liste des pages d'un tome : `https://api.comics-tracker.net/api/r2/list?prefix={link}` → retourne la liste exacte des fichiers
-- Images de lecture : `https://images.comics-tracker.net/{path}` (path retourné par r2/list)
+- Liste des pages d'un chapitre : `https://api.comics-tracker.net/api/r2/list?prefix={link}` → retourne un tableau JSON de chemins complets
+- Images de lecture : `https://images.comics-tracker.net/{chemin_complet}` (chemin issu de `/api/r2/list`)
 - Couvertures : `https://api.comics-tracker.net/api/issues/{id}?w=400`
+
+> ⚠️ `/api/issues/{id}` sans paramètre retourne directement l'image de couverture, pas du JSON. Ne pas appeler cet endpoint pour récupérer des métadonnées.
+
+> ⚠️ Le champ `link` du JSON (ex: `comics/marvel/.../Secret_Wars_1/`) est seulement le **préfixe** du dossier. Les chemins complets avec sous-dossiers (ex: `[Comics Fr]Secret Wars - 001/`) sont uniquement disponibles via `/api/r2/list`.
 
 ---
 
@@ -174,20 +177,6 @@ class MonExtension : HttpSource() {
     // Latest (même si non supporté, doit exister)
     override fun latestUpdatesRequest(page: Int): Request
     override fun latestUpdatesParse(response: Response): MangasPage
-}
-```
-
-### Astuce : récupérer les pages via un endpoint de listing
-Si le site expose un endpoint listant les fichiers d'un dossier (comme `/api/r2/list`), il vaut mieux l'utiliser plutôt que de générer les URLs à l'aveugle — certains comics ont des formats de pages non standards (sous-dossiers, pages doubles, etc.).
-
-```kotlin
-override fun pageListParse(response: Response): List<Page> {
-    val files = json.parseToJsonElement(response.body.string()).jsonArray
-    return files
-        .map { it.jsonPrimitive.content }
-        .filter { it.endsWith(".jpg") || it.endsWith(".png") || it.endsWith(".webp") }
-        .sorted()
-        .mapIndexed { index, path -> Page(index, "", "$imagesUrl/$path") }
 }
 ```
 
@@ -270,8 +259,6 @@ https://raw.githubusercontent.com/[username]/[repo]/repo/index.min.json
 3. Coller l'URL du `index.min.json` (branche `repo`)
 4. Aller dans `Extensions` → trouver l'extension → **Installer**
 
-> 💡 Si **Par URL** échoue, essayer **Par nom** en tapant le nom du repo GitHub directement.
-
 ---
 
 ## 8. Mettre à jour une extension
@@ -282,7 +269,6 @@ https://raw.githubusercontent.com/[username]/[repo]/repo/index.min.json
 4. Uploader le nouvel APK dans `apk/` de la branche `repo`
 5. Mettre à jour `index.min.json` : incrémenter `"code"` et `"version"`
 6. Supprimer l'ancien APK du repo (optionnel mais recommandé)
-7. Dans Tachimanga : **désinstaller** l'extension et la **réinstaller** pour forcer la mise à jour
 
 ---
 
@@ -319,23 +305,9 @@ Get-ChildItem -Recurse -Filter "*.png.png" | Rename-Item -NewName { $_.Name -rep
 **Cause** : Tachimanga cherche l'APK dans la branche `repo` dans un dossier `apk/`, pas dans `main` à la racine.
 **Solution** : Créer une branche `repo`, mettre l'APK dans `apk/` et pointer le `index.min.json` vers cette branche.
 
-### ❌ Certains comics affichent erreur 404 à la lecture
-**Cause** : Les pages ne suivent pas toujours le format `P00001.jpg` — certains comics utilisent des sous-dossiers (`001/001.jpg`, `003-004/003-004.jpg`...).
-**Solution** : Utiliser l'endpoint `/api/r2/list?prefix=` pour récupérer la liste exacte des pages depuis le serveur au lieu de générer les URLs à l'aveugle.
-
 ### ❌ Tachimanga affiche une ancienne version (cache)
 **Cause** : Tachimanga met en cache le `index.min.json`.
 **Solution** : Supprimer et réajouter le repo dans Tachimanga + vider le cache via Paramètres → Avancé → Vider le cache.
-
-### ❌ "Échec de la récupération des données — le dépôt est inexistant" après réinstallation
-**Cause** : Tachimanga garde en cache l'ancien repo même après suppression.
-**Solution** : Deux options :
-- **Désinstaller** complètement l'extension puis la réinstaller
-- Ajouter le repo **Par nom** (taper le nom du repo GitHub) au lieu de **Par URL**
-
-### ❌ L'extension reste sur une ancienne version après mise à jour
-**Cause** : Tachimanga met en cache l'APK installé.
-**Solution** : Désinstaller l'extension, vider le cache via **Paramètres → Avancé → Vider le cache**, puis réinstaller.
 
 ### ❌ L'icône n'apparaît pas
 **Cause** : Mauvais nom de fichier ou mauvais emplacement.
@@ -348,6 +320,37 @@ Get-ChildItem -Recurse -Filter "*.png.png" | Rename-Item -NewName { $_.Name -rep
 ### ❌ Comics sans chapitres
 **Cause** : La série n'a pas d'édition française sur le site (`frenchEditions: []`).
 **Solution** : Comportement normal — ces comics ne sont pas disponibles en VF.
+
+### ❌ Images ne se chargent pas (erreur 404 sur les pages)
+**Cause** : `java.net.URLEncoder.encode()` encode les espaces en `+` au lieu de `%20` et encode aussi les `/`, ce qui corrompt le chemin envoyé à `/api/r2/list`.
+**Solution** : Encoder manuellement uniquement les caractères problématiques :
+```kotlin
+val encodedPrefix = link
+    .replace(" ", "%20")
+    .replace("[", "%5B")
+    .replace("]", "%5D")
+    .replace(":", "%3A")
+```
+Appliquer ce fix partout où le `link` est utilisé dans une URL : `pageListRequest`, `fetchPageList`, et les URLs d'images dans `pageListParse`.
+
+### ❌ `getChapterUrl` génère une URL cassée (ex: `…/issue/comics/marvel/…`)
+**Cause** : Le champ `chapter.url` contient le chemin complet du dossier (ex: `comics/marvel/…`), pas un ID de série. L'ancienne implémentation faisait `$baseUrl/issue/$link` ce qui produisait une URL invalide.
+**Solution** : Pointer vers la vraie page de lecture du site :
+```kotlin
+override fun getChapterUrl(chapter: SChapter): String = if (chapter.url.startsWith("/article/")) {
+    "$baseUrl/articles/${chapter.url.removePrefix("/article/")}"
+} else {
+    val link = chapter.url.removePrefix("/reader/")
+    val encodedLink = link.replace(" ", "%20").replace("[", "%5B").replace("]", "%5D").replace(":", "%3A")
+    "$baseUrl/read?mode=server&driveLink=$encodedLink"
+}
+```
+
+### ❌ Tachimanga refuse de mettre à jour (garde une ancienne version)
+**Cause** : Tachimanga compare le `"code"` du `index.min.json` avec celui de l'extension installée. Si le nouveau `"code"` est inférieur ou égal, il ignore la mise à jour — même après désinstallation et vider le cache.
+**Solution** : Toujours aller **vers l'avant** — incrémenter `"code"`, `"version"` et `extVersionCode`. Ne jamais réutiliser un numéro de version déjà publié.
+
+> 🔥 **Version brûlée — Comics Tracker** : la version **1.4.8** a été publiée avec un bug (encodage URL cassé). Elle ne peut pas être réutilisée. La version suivante valide est la **1.4.9**.
 
 ---
 
@@ -362,9 +365,13 @@ Get-ChildItem -Recurse -Filter "*.png.png" | Rename-Item -NewName { $_.Name -rep
 | Oublier d'incrémenter `extVersionCode` et `code` | Toujours incrémenter les deux à chaque mise à jour |
 | Pusher vers `keiyoushi/extensions-source` | Pusher uniquement vers son propre repo |
 | Nommer l'icône `ic_launcher.png` dans le repo | Nommer l'icône avec le nom du package complet |
-| Générer les URLs de pages à l'aveugle (`P00001.jpg`...) | Utiliser l'endpoint `/api/r2/list` si disponible |
-| Mettre à jour sans désinstaller/réinstaller l'extension | Toujours désinstaller/réinstaller pour forcer la mise à jour |
+| Utiliser `apply from: "$rootDir/common.gradle"` dans build.gradle | Utiliser le format Keiyoushi |
+| Utiliser `java.net.URLEncoder.encode()` pour encoder les chemins | Encoder manuellement : `.replace(" ", "%20")` etc. |
+| Construire l'URL d'image avec un pattern fixe (`P00001.jpg`) | Récupérer les chemins complets via `/api/r2/list` |
+| Réutiliser un numéro de version déjà publié | Toujours incrémenter — un numéro brûlé est inutilisable |
+| Revenir à une version antérieure dans `index.min.json` | Toujours aller vers l'avant (ex: 1.4.8 brûlée → passer à 1.4.9) |
 
 ---
 
 *Guide rédigé suite à la création de l'extension Comics Tracker — Mai 2026*
+*Mis à jour suite au débogage de l'encodage URL et des chemins d'images — Juin 2026*
