@@ -357,7 +357,9 @@ override fun getChapterUrl(chapter: SChapter): String = if (chapter.url.startsWi
 **Cause** : Tachimanga compare le `"code"` du `index.min.json` avec celui de l'extension installée. Si le nouveau `"code"` est inférieur ou égal, il ignore la mise à jour — même après désinstallation et vider le cache.
 **Solution** : Toujours aller **vers l'avant** — incrémenter `"code"`, `"version"` et `extVersionCode`. Ne jamais réutiliser un numéro de version déjà publié.
 
-> 🔥 **Version brûlée — Comics Tracker** : la version **1.4.8** a été publiée avec un bug (encodage URL cassé). Elle ne peut pas être réutilisée. La version suivante valide est la **1.4.9**.
+> 🔥 **Versions brûlées — Comics Tracker** :
+> - **1.4.8** : bug d'encodage URL (images ne se chargeaient pas). Version suivante valide : **1.4.9**.
+> - **1.4.11** : régression — moins fonctionnelle que la 1.4.10. Version suivante valide : **1.4.12**.
 
 ### ❌ Comics de type "run" (saga d'auteur) non trouvés ou erreur 404
 **Cause** : Les runs (ex: Spider-Man par Dan Slott) n'utilisent pas `/api/series/{id}/issues` mais `/api/runs/{runId}` avec une structure différente (`sections[].frenchEditions` au lieu de `frenchEditions`). L'extension traitait tous les comics comme des séries classiques.
@@ -432,4 +434,4 @@ return Observable.zip(seriesSearch, editionsSearch) { fromSeries, fromEditions -
 
 *Guide rédigé suite à la création de l'extension Comics Tracker — Mai 2026*
 *Mis à jour suite au débogage de l'encodage URL et des chemins d'images — Juin 2026*
-*Mis à jour suite à l'ajout du support des runs (sagas d'auteur) et correction de la recherche — Juin 2026*
+*Mis à jour suite à l'ajout du support des runs et correction de la recherche (v1.4.12) — Juin 2026*
