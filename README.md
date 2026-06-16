@@ -1,7 +1,7 @@
 # Comics Tracker — Extension Tachimanga
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.12-yellow?style=for-the-badge">
+  <img src="https://img.shields.io/badge/version-1.4.15-yellow?style=for-the-badge">
   <img src="https://img.shields.io/badge/langue-Fran%C3%A7ais-blue?style=for-the-badge&logo=apple">
   <img src="https://img.shields.io/badge/plateforme-iOS-black?style=for-the-badge&logo=apple">
   <img src="https://img.shields.io/badge/Tachimanga-compatible-orange?style=for-the-badge">
@@ -33,7 +33,7 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 | Fichier | Lien direct |
 |---|---|
 | Index du dépôt | [index.min.json](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json) |
-| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.12-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/apk/tachiyomi-fr.comicstracker-v1.4.12-debug.apk) |
+| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.15-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/apk/tachiyomi-fr.comicstracker-v1.4.15-debug.apk) |
 
 ---
 
@@ -47,12 +47,22 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 
 ## Changelog
 
-### v1.4.12 (actuelle)
+### v1.4.15 (actuelle)
+- Correction du bug `&&` manquant dans le filtre de recherche — la recherche textuelle fonctionne à nouveau correctement
+
+### v1.4.14 (🔥 brûlée — ne pas utiliser)
+- Tentative de correction des numéros spéciaux — bug introduit (`&&` manquant) qui cassait toute la recherche textuelle
+- Numéro de version inutilisable, sauté directement en 1.4.15
+
+### v1.4.13
+- Correction du filtre des chapitres — les recueils multi-séries (ex: Marvel Comics II, numéros `.DEATHS`) n'apparaissent plus dans la liste des chapitres d'une série individuelle
+
+### v1.4.12
 - Correction de la recherche textuelle — les comics de type "run" (sagas d'auteur comme Spider-Man par Dan Slott) sont maintenant trouvés via une recherche parallèle dans `/api/french-editions`
 - Suppression du timeout de recherche — les deux sources (`/api/series` et `/api/french-editions`) sont interrogées simultanément
 
 ### v1.4.11 (🔥 brûlée — ne pas utiliser)
-- Version publiée avec une régression — moins fonctionnelle que la 1.4.10
+- Régression — moins fonctionnelle que la 1.4.10
 - Numéro de version inutilisable, sauté directement en 1.4.12
 
 ### v1.4.10
