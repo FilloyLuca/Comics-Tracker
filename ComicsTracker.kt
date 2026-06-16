@@ -230,7 +230,10 @@ class ComicsTracker : HttpSource() {
                     val ids = json.parseToJsonElement(response.body.string()).jsonArray
                     val matched = ids
                         .map { it.jsonPrimitive.content }
-                        .filter { it.lowercase().replace("_", " ").contains(queryLower) }
+                        .filter {
+                            it.lowercase().replace("_", " ").contains(queryLower) &&
+                                !it.contains(".") // ← exclure les numéros spéciaux (.deaths, .mu, etc.)
+                        }
                         .map { seriesId ->
                             SManga.create().apply {
                                 url = "/api/series/$seriesId/issues"
@@ -342,6 +345,7 @@ class ComicsTracker : HttpSource() {
                     SManga.create().apply {
                         url = "/article/$slug"
                         this.title = "📖 $title"
+                        thumbnail_url = "https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/icon/eu.kanade.tachiyomi.extension.fr.comicstracker.png"
                         description = preview
                         status = SManga.COMPLETED
                         initialized = true
@@ -540,14 +544,39 @@ class ComicsTracker : HttpSource() {
             json.parseToJsonElement(response.body.string()).jsonObject
         }.getOrNull()
 
-        val editionsList = if (jsonObj?.containsKey("sections") == true) {
+        val allEditions = if (jsonObj?.containsKey("sections") == true) {
             jsonObj["sections"]!!.jsonArray
                 .flatMap { it.jsonObject["frenchEditions"]?.jsonArray?.toList() ?: emptyList() }
         } else {
             jsonObj?.get("frenchEditions")?.jsonArray?.toList() ?: emptyList()
         }
 
-        if (editionsList.isEmpty()) return emptyList()
+        if (allEditions.isEmpty()) return emptyList()
+
+        // Pour les séries classiques, filtrer les recueils multi-séries
+        // en comparant le dossier parent du link avec l'ID de la série
+        val requestSeriesId = response.request.url.pathSegments
+            .dropLastWhile { it == "issues" }
+            .lastOrNull() ?: ""
+
+        val editionsList = if (requestSeriesId.isNotBlank() && !response.request.url.toString().contains("/api/runs/")) {
+            val seriesWord = requestSeriesId
+                .replace(Regex("_\\d{4}$"), "")
+                .replace("_", " ")
+                .replace("-", " ")
+                .lowercase()
+
+            allEditions.filter { element ->
+                val link = element.jsonObject["link"]?.jsonPrimitive?.content ?: ""
+                val folderName = link.split("/").getOrNull(link.split("/").size - 2)
+                    ?.lowercase()
+                    ?.replace("_", " ")
+                    ?.replace("-", " ") ?: ""
+                folderName.contains(seriesWord)
+            }.ifEmpty { allEditions }
+        } else {
+            allEditions
+        }
 
         return editionsList.mapIndexed { index, element ->
             val edition = element.jsonObject
