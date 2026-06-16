@@ -360,6 +360,7 @@ override fun getChapterUrl(chapter: SChapter): String = if (chapter.url.startsWi
 > 🔥 **Versions brûlées — Comics Tracker** :
 > - **1.4.8** : bug d'encodage URL (images ne se chargeaient pas). Version suivante valide : **1.4.9**.
 > - **1.4.11** : régression — moins fonctionnelle que la 1.4.10. Version suivante valide : **1.4.12**.
+> - **1.4.13** : bug `&&` manquant dans le filtre de recherche — toute la recherche textuelle était cassée. Version suivante valide : **1.4.14**.
 
 ### ❌ Comics de type "run" (saga d'auteur) non trouvés ou erreur 404
 **Cause** : Les runs (ex: Spider-Man par Dan Slott) n'utilisent pas `/api/series/{id}/issues` mais `/api/runs/{runId}` avec une structure différente (`sections[].frenchEditions` au lieu de `frenchEditions`). L'extension traitait tous les comics comme des séries classiques.
@@ -396,7 +397,31 @@ return Observable.zip(seriesSearch, editionsSearch) { fromSeries, fromEditions -
 }
 ```
 
-### ❌ Erreur de compilation `Missing '}'` après modification de `fetchSearchManga`
+### ❌ Numéros spéciaux (`.DEATHS`, `.MU`, etc.) apparaissent comme résultats de recherche
+**Cause** : La recherche dans `/api/series` retourne tous les IDs bruts, y compris les numéros spéciaux comme `amazing_spider-man_2022_65.deaths`. Ces IDs passent le filtre de recherche car ils contiennent le nom de la série, mais ils n'ont pas d'édition française propre.
+**Solution** : Exclure les IDs contenant un `.` dans le filtre de recherche :
+```kotlin
+.filter {
+    it.lowercase().replace("_", " ").contains(queryLower) &&
+        !it.contains(".")
+}
+```
+
+### ❌ Toute la recherche textuelle retourne la liste populaire (plus de résultats)
+**Cause** : Un `&&` manquant dans un bloc `.filter {}` — en Kotlin, deux expressions sur des lignes séparées sans opérateur ne sont pas combinées : seule la dernière est évaluée. Exemple du bug :
+```kotlin
+.filter {
+    it.contains(queryLower)  // ← ignoré !
+    !it.contains(".")        // ← seule condition évaluée
+}
+```
+**Solution** : Toujours utiliser `&&` explicitement :
+```kotlin
+.filter {
+    it.contains(queryLower) &&
+        !it.contains(".")
+}
+```
 **Cause** : Le bloc `// Aucun filtre → liste populaire` a été supprimé accidentellement lors d'une modification, laissant `fetchSearchManga` sans accolade de fermeture.
 **Solution** : S'assurer que la fonction se termine toujours par :
 ```kotlin
@@ -429,9 +454,11 @@ return Observable.zip(seriesSearch, editionsSearch) { fromSeries, fromEditions -
 | Parser `frenchEditions` directement pour tous les comics | Vérifier si la réponse contient `sections` (runs) ou `frenchEditions` (séries) |
 | Chercher les runs uniquement dans `/api/series` | Chercher en parallèle dans `/api/series` ET `/api/french-editions` |
 | Supprimer le bloc `// Aucun filtre` en bas de `fetchSearchManga` | Toujours conserver le fallback vers `popularMangaRequest` |
+| Mettre deux conditions sur deux lignes dans un `.filter {}` sans `&&` | Toujours utiliser `&&` explicitement entre les conditions |
+| Afficher les numéros spéciaux (`.DEATHS`, `.MU`) comme résultats | Filtrer les IDs contenant un `.` dans `seriesSearch` |
 
 ---
 
 *Guide rédigé suite à la création de l'extension Comics Tracker — Mai 2026*
 *Mis à jour suite au débogage de l'encodage URL et des chemins d'images — Juin 2026*
-*Mis à jour suite à l'ajout du support des runs et correction de la recherche (v1.4.12) — Juin 2026*
+*Mis à jour suite à l'ajout du support des runs, correction de la recherche et filtrage des numéros spéciaux (v1.4.14) — Juin 2026*
