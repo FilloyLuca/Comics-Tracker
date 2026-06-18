@@ -1,7 +1,7 @@
 # Comics Tracker — Extension Tachimanga
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.15-yellow?style=for-the-badge">
+  <img src="https://img.shields.io/badge/version-1.4.27-yellow?style=for-the-badge">
   <img src="https://img.shields.io/badge/langue-Fran%C3%A7ais-blue?style=for-the-badge&logo=apple">
   <img src="https://img.shields.io/badge/plateforme-iOS-black?style=for-the-badge&logo=apple">
   <img src="https://img.shields.io/badge/Tachimanga-compatible-orange?style=for-the-badge">
@@ -33,7 +33,7 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 | Fichier | Lien direct |
 |---|---|
 | Index du dépôt | [index.min.json](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json) |
-| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.15-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/apk/tachiyomi-fr.comicstracker-v1.4.15-debug.apk) |
+| APK de l'extension | [tachiyomi-fr.comicstracker-v1.4.27-debug.apk](https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/apk/tachiyomi-fr.comicstracker-v1.4.27-debug.apk) |
 
 ---
 
@@ -47,7 +47,20 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 
 ## Changelog
 
-### v1.4.15 (actuelle)
+### v1.4.27 (actuelle)
+- Ajout du support des **collections hors-périodes** (DC Black Label, Marvel Must-Have, etc.) — Batman: Année Un, Batman: Un Long Halloween, Kingdom Come et tous les autres comics de ces collections sont maintenant trouvables et lisibles
+- Ces collections ne passent pas par `/api/french-editions` mais par le scraping du `__NEXT_DATA__` de la page d'accueil
+- Le cache des collections est préchauffé en arrière-plan dès l'ouverture de la source
+
+### v1.4.23 → v1.4.26 (🔥 brûlées — ne pas utiliser)
+- Tentatives successives de correction du bug des collections hors-périodes — fonctionnement identique entre elles mais aucune ne résolvait le problème complètement
+- Numéros inutilisables, sautés directement en 1.4.27
+
+### v1.4.22
+- Correction de l'encodage des accents dans la recherche — `normalizeAccents()` permet de trouver "Batman: Année Un" en tapant "annee un" ou "année un"
+- Correction des covers disparues sur les comics sans VF — `thumbnail_url` n'est plus écrasé avec `null`
+
+### v1.4.15
 - Correction du bug `&&` manquant dans le filtre de recherche — la recherche textuelle fonctionne à nouveau correctement
 
 ### v1.4.14 (🔥 brûlée — ne pas utiliser)
@@ -115,6 +128,7 @@ https://raw.githubusercontent.com/FilloyLuca/Comics-Tracker/repo/index.min.json
 ## Remarques
 
 - Seuls les comics disposant d'une **édition française** sur comics-tracker.net sont lisibles — les séries sans VF affichent un message explicatif
-- La recherche fonctionne par nom de série ou de tome — les résultats proviennent à la fois des séries classiques et des sagas d'auteur (runs)
+- La recherche fonctionne par nom de série ou de tome — les résultats proviennent à la fois des séries classiques, des sagas d'auteur (runs) et des collections hors-périodes (DC Black Label, Must-Have...)
 - Les **runs** (sagas d'auteur comme Spider-Man par Dan Slott) affichent tous les tomes de la saga en un seul titre
+- Les **collections** (DC Black Label, Marvel Must-Have) nécessitent que le cache soit chaud — ouvrir la source une première fois avant de rechercher
 - Extension non officielle, non affiliée à comics-tracker.net
