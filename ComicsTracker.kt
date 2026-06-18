@@ -31,19 +31,27 @@ class ComicsTracker : HttpSource() {
 
     private val json: Json by injectLazy()
 
-    // ======== CACHE DES PÉRIODES ========
+    // ======== CACHE DES PÉRIODES ET COLLECTIONS ========
 
     data class Period(val id: String, val name: String, val publisher: String)
 
+    // Item d'une collection hors-périodes (dc_black_label, must_have...) — données du __NEXT_DATA__ de la home
+    data class CollectionItem(
+        val id: String,
+        val frTitle: String,
+        val link: String,
+        val collectionSlug: String,
+        val thumbnailUrl: String,
+    )
+
     private var periodsCache: List<Period>? = null
+    private var collectionItemsCache: List<CollectionItem>? = null
 
     private fun fetchPeriods(): List<Period> {
         periodsCache?.let { return it }
-
         return runCatching {
             val response = client.newCall(GET("$apiUrl/api/periods", headers)).execute()
             val periodsJson = json.parseToJsonElement(response.body.string()).jsonArray
-
             val periods = periodsJson.map { element ->
                 val obj = element.jsonObject
                 Period(
@@ -52,37 +60,83 @@ class ComicsTracker : HttpSource() {
                     publisher = obj["publisher"]?.jsonPrimitive?.content ?: "independant",
                 )
             }.filter { it.id.isNotBlank() }
-
             periodsCache = periods
             periods
         }.getOrElse { emptyList() }
     }
 
+    // Scrape la home pour les items des collections (dc_black_label, must_have...)
+    // Ces period_id n'existent pas dans /api/periods mais leurs données sont dans le __NEXT_DATA__ de la home
+    // IDs de périodes valides dans /api/periods — les period_id absents de cette liste sont des collections hors-API
+    private val knownApiPeriodIds = setOf(
+        "all_new_all_different", "dc_absolute", "dawn_of_dc", "dc_rebirth", "infinite_frontier",
+        "invincible", "marvel_classics", "dc_classics", "marvel_now", "ultimate_marvel",
+        "ultimate_universe", "fresh_start", "timeless", "the_boys", "dc_all_in", "the_authority",
+        "vertigo", "spawn", "energon_universe", "new_52", "the_walking_dead",
+        "league_of_extraordinary_gentlemen", "tmnt", "star_wars_dark_horse",
+    )
+
+    private fun fetchCollectionItems(): List<CollectionItem> {
+        collectionItemsCache?.let { return it }
+        return runCatching {
+            // On utilise les IDs connus en dur + ceux du cache si disponible, pour ne pas bloquer sur fetchPeriods()
+            val validPeriodIds = if (periodsCache != null) {
+                periodsCache!!.map { it.id }.toSet()
+            } else {
+                knownApiPeriodIds
+            }
+            val response = client.newCall(GET(baseUrl, headers)).execute()
+            val document = Jsoup.parse(response.body.string())
+            val nextDataJson = document.getElementById("__NEXT_DATA__")?.data() ?: return@runCatching emptyList()
+            val root = json.parseToJsonElement(nextDataJson).jsonObject
+            val allItems = mutableListOf<CollectionItem>()
+
+            fun extractEditions(element: kotlinx.serialization.json.JsonElement) {
+                when (element) {
+                    is kotlinx.serialization.json.JsonArray -> element.forEach { extractEditions(it) }
+                    is kotlinx.serialization.json.JsonObject -> {
+                        val periodId = element["period_id"]?.jsonPrimitive?.content
+                        val id = element["id"]?.jsonPrimitive?.content
+                        val frTitle = element["french_title"]?.jsonPrimitive?.content
+                        val link = element["link"]?.jsonPrimitive?.content
+                        if (periodId != null && id != null && frTitle != null && link != null &&
+                            !validPeriodIds.contains(periodId)
+                        ) {
+                            allItems.add(
+                                CollectionItem(
+                                    id = id,
+                                    frTitle = frTitle,
+                                    link = link,
+                                    collectionSlug = periodId,
+                                    thumbnailUrl = "$baseUrl/api/image-proxy/collection-items/$id?w=400",
+                                ),
+                            )
+                        }
+                        element.values.forEach { extractEditions(it) }
+                    }
+                    else -> {}
+                }
+            }
+            extractEditions(root)
+
+            val items = allItems.distinctBy { it.id }
+            collectionItemsCache = items
+            items
+        }.getOrElse { emptyList() }
+    }
+
     // ======== FILTRES ========
 
-    private class PublisherFilter :
-        Filter.Select<String>(
-            "Éditeur",
-            arrayOf("Tous", "Marvel", "DC Comics", "Indépendants"),
-        )
+    private class PublisherFilter : Filter.Select<String>("Éditeur", arrayOf("Tous", "Marvel", "DC Comics", "Indépendants"))
 
-    private class PeriodFilter(periods: List<Period>) :
-        Filter.Select<String>(
-            "Période (optionnel)",
-            arrayOf("Toutes", *periods.map { it.name }.toTypedArray()),
-        ) {
+    private class PeriodFilter(periods: List<Period>) : Filter.Select<String>("Période (optionnel)", arrayOf("Toutes", *periods.map { it.name }.toTypedArray())) {
         val periodList = periods
     }
 
-    private class ContentTypeFilter :
-        Filter.Select<String>(
-            "Type de contenu",
-            arrayOf("Comics", "Articles & Guides"),
-        )
+    private class ContentTypeFilter : Filter.Select<String>("Type de contenu", arrayOf("Comics", "Articles & Guides"))
 
     override fun getFilterList(): FilterList {
         val periods = periodsCache
-
         return if (periods == null) {
             FilterList(
                 Filter.Header("⚠️ Ouvrez la source pour charger les filtres"),
@@ -111,13 +165,14 @@ class ComicsTracker : HttpSource() {
         if (periodsCache == null) {
             Thread { fetchPeriods() }.start()
         }
-
+        if (collectionItemsCache == null) {
+            Thread { runCatching { fetchCollectionItems() } }.start()
+        }
         val ids = json.parseToJsonElement(response.body.string()).jsonArray
-
         val mangas = ids.map { element ->
             val seriesId = element.jsonPrimitive.content
             SManga.create().apply {
-                url = "/api/series/$seriesId/issues"
+                url = "/series/$seriesId"
                 title = seriesId
                     .replace(Regex("_\\d{4}$"), "")
                     .replace("_", " ")
@@ -127,7 +182,6 @@ class ComicsTracker : HttpSource() {
                 initialized = false
             }
         }
-
         return MangasPage(mangas, ids.size >= 20)
     }
 
@@ -138,45 +192,36 @@ class ComicsTracker : HttpSource() {
     override fun latestUpdatesParse(response: Response): MangasPage {
         val html = response.body.string()
         val document = Jsoup.parse(html)
-
         val nextDataJson = document.getElementById("__NEXT_DATA__")?.data()
             ?: return MangasPage(emptyList(), false)
-
         val pageProps = json.parseToJsonElement(nextDataJson)
-            .jsonObject["props"]
-            ?.jsonObject?.get("pageProps")
-            ?.jsonObject ?: return MangasPage(emptyList(), false)
-
+            .jsonObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
+            ?: return MangasPage(emptyList(), false)
         val editions = pageProps["editions"]?.jsonArray ?: return MangasPage(emptyList(), false)
 
         val seen = mutableSetOf<String>()
         val mangas = editions.mapNotNull { element ->
             val edition = element.jsonObject
-            val parentId = edition["parent_id"]?.jsonPrimitive?.content
             val editionId = edition["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-            val seriesId = parentId ?: editionId
-
-            if (!seen.add(seriesId)) return@mapNotNull null
-
             val frTitle = edition["french_title"]?.jsonPrimitive?.content ?: editionId
-            val imageId = edition["id"]?.jsonPrimitive?.content
-
+            val groupId = editionId.replace(Regex("_t\\d+$|_v\\d+$|_n\\d+$|_vol\\d+$"), "")
+            if (!seen.add(groupId)) return@mapNotNull null
             SManga.create().apply {
-                url = "/api/series/$seriesId/issues"
+                url = "/series/$groupId"
                 title = frTitle
                     .replace(Regex("\\s+(n°|Tome|Volume|Vol\\.|T\\.)\\s*\\d+.*", RegexOption.IGNORE_CASE), "")
                     .trim()
-                thumbnail_url = if (imageId != null) "$apiUrl/api/issues/$imageId?w=400" else null
+                thumbnail_url = "$apiUrl/api/issues/$editionId?w=400"
                 initialized = false
             }
         }
-
         return MangasPage(mangas, false)
     }
 
     // ======== RECHERCHE ET FILTRES ========
 
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
+        // S'assurer que les périodes sont chargées (bloquant si nécessaire)
         val periods = fetchPeriods()
 
         var publisherIndex = 0
@@ -196,47 +241,37 @@ class ComicsTracker : HttpSource() {
             }
         }
 
-        // Filtre Articles & Guides
-        if (contentTypeIndex == 1) {
-            return fetchArticles(query)
-        }
+        if (contentTypeIndex == 1) return fetchArticles(query)
 
-        // Filtre par période spécifique
         if (periodIndex > 0) {
             val selectedPeriod = periodFilter?.periodList?.getOrNull(periodIndex - 1)
                 ?: return Observable.just(MangasPage(emptyList(), false))
             return fetchByPeriod(selectedPeriod.id, query)
         }
 
-        // Filtre par éditeur
         if (publisherIndex > 0) {
             val publisherKey = when (publisherIndex) {
                 1 -> "marvel"
                 2 -> "dc"
                 else -> "independant"
             }
-            val filteredPeriods = periods.filter { it.publisher == publisherKey }
-            return fetchByPublisher(filteredPeriods, query)
+            return fetchByPublisher(periods.filter { it.publisher == publisherKey }, query)
         }
 
-        // Recherche textuelle récursive
         if (query.isNotBlank()) {
-            val queryLower = query.lowercase().trim()
+            val queryNorm = normalizeAccents(query)
 
-            // Recherche dans /api/series ET /api/french-editions en parallèle
+            // Recherche dans /api/series (séries classiques)
             val seriesSearch = client.newCall(GET("$apiUrl/api/series?page=1", headers))
                 .asObservableSuccess()
                 .flatMap { response ->
                     val ids = json.parseToJsonElement(response.body.string()).jsonArray
                     val matched = ids
                         .map { it.jsonPrimitive.content }
-                        .filter {
-                            it.lowercase().replace("_", " ").contains(queryLower) &&
-                                !it.contains(".") // ← exclure les numéros spéciaux (.deaths, .mu, etc.)
-                        }
+                        .filter { !it.contains(".") && normalizeAccents(it.replace("_", " ")).contains(queryNorm) }
                         .map { seriesId ->
                             SManga.create().apply {
-                                url = "/api/series/$seriesId/issues"
+                                url = "/series/$seriesId"
                                 title = seriesId
                                     .replace(Regex("_\\d{4}$"), "")
                                     .replace("_", " ")
@@ -249,23 +284,28 @@ class ComicsTracker : HttpSource() {
                     Observable.just(MangasPage(matched, false))
                 }
 
-            val editionsSearch = run {
-                val requests = periods.map { period ->
+            // Recherche dans toutes les périodes (couvre collections, black label, runs, etc.)
+            val editionsSearch = if (periods.isEmpty()) {
+                Observable.just(MangasPage(emptyList(), false))
+            } else {
+                val periodedRequests = periods.map { period ->
                     client.newCall(GET("$apiUrl/api/french-editions?periodName=${period.id}", headers))
                         .asObservableSuccess()
+                        .map { response -> Pair(period.id, response) }
                 }
-                Observable.merge(requests)
+                Observable.merge(periodedRequests)
                     .toList()
-                    .map { responses ->
+                    .map { pairs ->
                         val seen = mutableSetOf<String>()
                         val mangas = mutableListOf<SManga>()
-                        responses.forEach { response ->
+                        pairs.forEach { (periodId, response) ->
                             val editions = json.parseToJsonElement(response.body.string()).jsonArray
                             editions.forEach { element ->
                                 val edition = element.jsonObject
                                 val editionId = edition["id"]?.jsonPrimitive?.content ?: return@forEach
                                 val frTitle = edition["french_title"]?.jsonPrimitive?.content ?: editionId
-                                if (!frTitle.lowercase().contains(queryLower)) return@forEach
+                                if (!normalizeAccents(frTitle).contains(queryNorm)) return@forEach
+
                                 val link = edition["link"]?.jsonPrimitive?.content ?: ""
                                 val sourceType = edition["source_type"]?.jsonPrimitive?.content ?: ""
                                 val runId = if (sourceType == "run") {
@@ -274,11 +314,14 @@ class ComicsTracker : HttpSource() {
                                 } else {
                                     ""
                                 }
-                                val groupId = if (sourceType == "run") runId else editionId.replace(Regex("_t\\d+$|_v\\d+$|_n\\d+$|_vol\\d+$"), "")
-                                if (!seen.add(groupId)) return@forEach
+
+                                // Déduplication par titre normalisé (regroupe tous les tomes d'une même série)
+                                val dedupeKey = if (sourceType == "run") "run:$runId" else "title:${normalizeAccents(frTitle.replace(Regex("\\s+(Tome|Volume|Vol\\.|T\\.|n°)\\s*\\d+.*", RegexOption.IGNORE_CASE), "").trim())}"
+                                if (!seen.add(dedupeKey)) return@forEach
+
                                 mangas.add(
                                     SManga.create().apply {
-                                        url = if (sourceType == "run") "/run/$runId" else "/reader/$link"
+                                        url = if (sourceType == "run") "/run/$runId" else "/period/$periodId/edition/$editionId"
                                         title = frTitle
                                             .replace(Regex("\\s+(Tome|Volume|Vol\\.|T\\.|n°)\\s*\\d+.*", RegexOption.IGNORE_CASE), "")
                                             .trim()
@@ -292,14 +335,28 @@ class ComicsTracker : HttpSource() {
                     }
             }
 
+            // Recherche dans les collections hors-périodes (dc_black_label, must_have, etc.)
+            val collectionItems = runCatching { fetchCollectionItems() }.getOrElse { emptyList() }
+            val collectionMangas = collectionItems
+                .filter { normalizeAccents(it.frTitle).contains(queryNorm) }
+                .distinctBy { normalizeAccents(it.frTitle) }
+                .map { item ->
+                    SManga.create().apply {
+                        url = "/collection/${item.collectionSlug}/${item.id}"
+                        title = item.frTitle
+                        thumbnail_url = item.thumbnailUrl
+                        initialized = false
+                    }
+                }
+
             return Observable.zip(seriesSearch, editionsSearch) { fromSeries, fromEditions ->
                 val seen = mutableSetOf<String>()
-                val combined = (fromSeries.mangas + fromEditions.mangas).filter { seen.add(it.url) }
+                val combined = (fromSeries.mangas + fromEditions.mangas + collectionMangas).filter { seen.add(it.url) }
                 MangasPage(combined.sortedBy { it.title }, false)
             }
         }
 
-        // Aucun filtre → liste populaire
+        // Pas de filtre, pas de query → liste populaire
         return client.newCall(popularMangaRequest(page))
             .asObservableSuccess()
             .map { popularMangaParse(it) }
@@ -311,37 +368,27 @@ class ComicsTracker : HttpSource() {
         return client.newCall(GET("$baseUrl/articles", headers))
             .asObservableSuccess()
             .map { response ->
-                val html = response.body.string()
-                val document = Jsoup.parse(html)
-
+                val document = Jsoup.parse(response.body.string())
                 val nextDataJson = document.getElementById("__NEXT_DATA__")?.data()
                     ?: return@map MangasPage(emptyList(), false)
-
                 val pageProps = json.parseToJsonElement(nextDataJson)
-                    .jsonObject["props"]
-                    ?.jsonObject?.get("pageProps")
-                    ?.jsonObject ?: return@map MangasPage(emptyList(), false)
-
+                    .jsonObject["props"]?.jsonObject?.get("pageProps")?.jsonObject
+                    ?: return@map MangasPage(emptyList(), false)
                 val articles = pageProps["articles"]?.jsonArray ?: return@map MangasPage(emptyList(), false)
-                val queryLower = query.lowercase().trim()
+                val queryNorm = normalizeAccents(query)
 
                 val mangas = articles.mapNotNull { element ->
                     val article = element.jsonObject
                     val slug = article["slug"]?.jsonPrimitive?.content ?: return@mapNotNull null
                     val title = article["title"]?.jsonPrimitive?.content ?: return@mapNotNull null
                     val content = article["content"]?.jsonPrimitive?.content ?: ""
-
-                    if (queryLower.isNotBlank() && !title.lowercase().contains(queryLower)) return@mapNotNull null
-
-                    // Extrait les 200 premiers caractères du contenu comme description
+                    if (queryNorm.isNotBlank() && !normalizeAccents(title).contains(queryNorm)) return@mapNotNull null
                     val preview = content
-                        .replace(Regex("\\[.*?\\]\\(.*?\\)"), "") // Enlever les liens Markdown
-                        .replace(Regex("#{1,6}\\s"), "") // Enlever les titres Markdown
-                        .replace(Regex("\\*{1,2}(.*?)\\*{1,2}"), "$1") // Enlever le gras/italique
-                        .trim()
-                        .take(200)
+                        .replace(Regex("\\[.*?\\]\\(.*?\\)"), "")
+                        .replace(Regex("#{1,6}\\s"), "")
+                        .replace(Regex("\\*{1,2}(.*?)\\*{1,2}"), "$1")
+                        .trim().take(200)
                         .let { if (it.length == 200) "$it..." else it }
-
                     SManga.create().apply {
                         url = "/article/$slug"
                         this.title = "📖 $title"
@@ -351,9 +398,29 @@ class ComicsTracker : HttpSource() {
                         initialized = true
                     }
                 }
-
                 MangasPage(mangas, false)
             }
+    }
+
+    private fun editionToManga(edition: kotlinx.serialization.json.JsonObject, periodId: String): SManga? {
+        val editionId = edition["id"]?.jsonPrimitive?.content ?: return null
+        val frTitle = edition["french_title"]?.jsonPrimitive?.content ?: editionId
+        val link = edition["link"]?.jsonPrimitive?.content ?: ""
+        val sourceType = edition["source_type"]?.jsonPrimitive?.content ?: ""
+        val runId = if (sourceType == "run") {
+            link.split("/runs/").getOrNull(1)?.split("/")?.firstOrNull()
+                ?.lowercase()?.replace(" ", "_") ?: ""
+        } else {
+            ""
+        }
+        return SManga.create().apply {
+            url = if (sourceType == "run") "/run/$runId" else "/period/$periodId/edition/$editionId"
+            title = frTitle
+                .replace(Regex("\\s+(Tome|Volume|Vol\\.|T\\.|n°)\\s*\\d+.*", RegexOption.IGNORE_CASE), "")
+                .trim()
+            thumbnail_url = "$apiUrl/api/issues/$editionId?w=400"
+            initialized = false
+        }
     }
 
     private fun fetchByPeriod(periodId: String, query: String): Observable<MangasPage> {
@@ -361,87 +428,62 @@ class ComicsTracker : HttpSource() {
             .asObservableSuccess()
             .map { response ->
                 val editions = json.parseToJsonElement(response.body.string()).jsonArray
-                val queryLower = query.lowercase().trim()
-
+                val queryNorm = normalizeAccents(query)
                 val seen = mutableSetOf<String>()
                 val mangas = editions.mapNotNull { element ->
                     val edition = element.jsonObject
                     val editionId = edition["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
                     val frTitle = edition["french_title"]?.jsonPrimitive?.content ?: editionId
-                    val link = edition["link"]?.jsonPrimitive?.content ?: ""
                     val sourceType = edition["source_type"]?.jsonPrimitive?.content ?: ""
+                    val link = edition["link"]?.jsonPrimitive?.content ?: ""
                     val runId = if (sourceType == "run") {
                         link.split("/runs/").getOrNull(1)?.split("/")?.firstOrNull()
                             ?.lowercase()?.replace(" ", "_") ?: ""
                     } else {
                         ""
                     }
-                    val groupId = if (sourceType == "run") runId else editionId.replace(Regex("_t\\d+$|_v\\d+$|_n\\d+$|_vol\\d+$"), "")
-
-                    if (!seen.add(groupId)) return@mapNotNull null
-                    if (queryLower.isNotBlank() && !frTitle.lowercase().contains(queryLower)) return@mapNotNull null
-
-                    SManga.create().apply {
-                        url = if (sourceType == "run") "/run/$runId" else "/reader/$link"
-                        title = frTitle
-                            .replace(Regex("\\s+(Tome|Volume|Vol\\.|T\\.|n°)\\s*\\d+.*", RegexOption.IGNORE_CASE), "")
-                            .trim()
-                        thumbnail_url = "$apiUrl/api/issues/$editionId?w=400"
-                        initialized = false
-                    }
+                    val dedupeKey = if (sourceType == "run") "run:$runId" else "title:${normalizeAccents(frTitle.replace(Regex("\\s+(Tome|Volume|Vol\\.|T\\.|n°)\\s*\\d+.*", RegexOption.IGNORE_CASE), "").trim())}"
+                    if (!seen.add(dedupeKey)) return@mapNotNull null
+                    if (queryNorm.isNotBlank() && !normalizeAccents(frTitle).contains(queryNorm)) return@mapNotNull null
+                    editionToManga(edition, periodId)
                 }
-
                 MangasPage(mangas, false)
             }
     }
 
     private fun fetchByPublisher(periods: List<Period>, query: String): Observable<MangasPage> {
         if (periods.isEmpty()) return Observable.just(MangasPage(emptyList(), false))
-
-        val requests = periods.map { period ->
+        val periodedRequests = periods.map { period ->
             client.newCall(GET("$apiUrl/api/french-editions?periodName=${period.id}", headers))
                 .asObservableSuccess()
+                .map { response -> Pair(period.id, response) }
         }
-
-        return Observable.merge(requests)
+        return Observable.merge(periodedRequests)
             .toList()
-            .map { responses ->
-                val queryLower = query.lowercase().trim()
+            .map { pairs ->
+                val queryNorm = normalizeAccents(query)
                 val seen = mutableSetOf<String>()
                 val mangas = mutableListOf<SManga>()
-
-                responses.forEach { response ->
+                pairs.forEach { (periodId, response) ->
                     val editions = json.parseToJsonElement(response.body.string()).jsonArray
                     editions.forEach { element ->
                         val edition = element.jsonObject
                         val editionId = edition["id"]?.jsonPrimitive?.content ?: return@forEach
                         val frTitle = edition["french_title"]?.jsonPrimitive?.content ?: editionId
-                        val link = edition["link"]?.jsonPrimitive?.content ?: ""
                         val sourceType = edition["source_type"]?.jsonPrimitive?.content ?: ""
+                        val link = edition["link"]?.jsonPrimitive?.content ?: ""
                         val runId = if (sourceType == "run") {
                             link.split("/runs/").getOrNull(1)?.split("/")?.firstOrNull()
                                 ?.lowercase()?.replace(" ", "_") ?: ""
                         } else {
                             ""
                         }
-                        val groupId = if (sourceType == "run") runId else editionId.replace(Regex("_t\\d+$|_v\\d+$|_n\\d+$|_vol\\d+$"), "")
-
-                        if (!seen.add(groupId)) return@forEach
-                        if (queryLower.isNotBlank() && !frTitle.lowercase().contains(queryLower)) return@forEach
-
-                        mangas.add(
-                            SManga.create().apply {
-                                url = if (sourceType == "run") "/run/$runId" else "/reader/$link"
-                                title = frTitle
-                                    .replace(Regex("\\s+(Tome|Volume|Vol\\.|T\\.|n°)\\s*\\d+.*", RegexOption.IGNORE_CASE), "")
-                                    .trim()
-                                thumbnail_url = "$apiUrl/api/issues/$editionId?w=400"
-                                initialized = false
-                            },
-                        )
+                        val dedupeKey = if (sourceType == "run") "run:$runId" else "title:${normalizeAccents(frTitle.replace(Regex("\\s+(Tome|Volume|Vol\\.|T\\.|n°)\\s*\\d+.*", RegexOption.IGNORE_CASE), "").trim())}"
+                        if (!seen.add(dedupeKey)) return@forEach
+                        if (queryNorm.isNotBlank() && !normalizeAccents(frTitle).contains(queryNorm)) return@forEach
+                        editionToManga(edition, periodId)?.let { mangas.add(it) }
                     }
                 }
-
                 MangasPage(mangas.sortedBy { it.title }, false)
             }
     }
@@ -453,18 +495,32 @@ class ComicsTracker : HttpSource() {
     // ======== DÉTAILS D'UN MANGA ========
 
     override fun mangaDetailsRequest(manga: SManga): Request = when {
-        manga.url.startsWith("/article/") -> GET("$baseUrl/articles/${manga.url.removePrefix("/article/")}", headers)
-        manga.url.startsWith("/run/") -> GET("$apiUrl/api/runs/${manga.url.removePrefix("/run/")}", headers)
-        manga.url.startsWith("/reader/") -> {
-            val parts = manga.url.removePrefix("/reader/").trimEnd('/').split("/")
-            val seriesId = parts.lastOrNull()?.lowercase() ?: ""
-            GET("$apiUrl/api/series/$seriesId/issues", headers)
+        manga.url.startsWith("/article/") ->
+            GET("$baseUrl/articles/${manga.url.removePrefix("/article/")}", headers)
+        manga.url.startsWith("/run/") ->
+            GET("$apiUrl/api/runs/${manga.url.removePrefix("/run/")}", headers)
+        manga.url.startsWith("/period/") -> {
+            // /period/{periodId}/edition/{editionId}
+            val periodId = manga.url.removePrefix("/period/").substringBefore("/edition/")
+            val editionId = manga.url.substringAfterLast("/edition/")
+            val newHeaders = headers.newBuilder().add("X-Edition-Id", editionId).build()
+            GET("$apiUrl/api/french-editions?periodName=$periodId", newHeaders)
         }
-        else -> GET("$apiUrl${manga.url}", headers)
+        manga.url.startsWith("/collection/") -> {
+            // /collection/{collectionSlug}/{editionId} — comic hors-périodes, pas d'API, données dans la home
+            // On retourne la page de la collection pour parser le __NEXT_DATA__
+            val collectionSlug = manga.url.removePrefix("/collection/").substringBefore("/")
+            val editionId = manga.url.substringAfterLast("/")
+            val newHeaders = headers.newBuilder().add("X-Edition-Id", editionId).build()
+            GET("$baseUrl/collection/$collectionSlug", newHeaders)
+        }
+        manga.url.startsWith("/series/") ->
+            GET("$apiUrl/api/series/${manga.url.removePrefix("/series/")}/issues", headers)
+        else ->
+            GET("$apiUrl${manga.url}", headers)
     }
 
     override fun mangaDetailsParse(response: Response): SManga {
-        // Si c'est un article → retourner directement sans parser
         if (response.request.url.toString().contains("/articles/")) {
             return SManga.create().apply {
                 description = "📖 Cliquez sur 'Ouvrir dans le navigateur' pour lire cet article sur comics-tracker.net"
@@ -473,43 +529,83 @@ class ComicsTracker : HttpSource() {
             }
         }
 
-        val jsonObj = runCatching {
-            json.parseToJsonElement(response.body.string()).jsonObject
-        }.getOrNull()
+        val responseStr = response.body.string()
+        val targetEditionId = response.request.header("X-Edition-Id")
 
-        val editions = if (jsonObj?.containsKey("sections") == true) {
-            jsonObj["sections"]!!.jsonArray
-                .flatMap { it.jsonObject["frenchEditions"]?.jsonArray?.toList() ?: emptyList() }
-        } else {
-            jsonObj?.get("frenchEditions")?.jsonArray?.toList() ?: emptyList()
+        // Si la réponse est une page HTML (collection hors-périodes), parser le __NEXT_DATA__
+        val isHtmlResponse = responseStr.trimStart().startsWith("<")
+        if (isHtmlResponse && targetEditionId != null) {
+            val document = Jsoup.parse(responseStr)
+            val nextDataJson = document.getElementById("__NEXT_DATA__")?.data()
+            if (nextDataJson != null) {
+                val collectionItems = mutableListOf<kotlinx.serialization.json.JsonObject>()
+                fun findItems(el: kotlinx.serialization.json.JsonElement) {
+                    when (el) {
+                        is kotlinx.serialization.json.JsonArray -> el.forEach { findItems(it) }
+                        is kotlinx.serialization.json.JsonObject -> {
+                            if (el["id"]?.jsonPrimitive?.content == targetEditionId) collectionItems.add(el)
+                            el.values.forEach { findItems(it) }
+                        }
+                        else -> {}
+                    }
+                }
+                findItems(json.parseToJsonElement(nextDataJson))
+                val item = collectionItems.firstOrNull()
+                if (item != null) {
+                    return SManga.create().apply {
+                        title = item["french_title"]?.jsonPrimitive?.content ?: targetEditionId
+                        thumbnail_url = "$baseUrl/api/image-proxy/collection-items/$targetEditionId?w=400"
+                        description = "Comics disponible sur Comics Tracker (VF)"
+                        status = SManga.UNKNOWN
+                        initialized = true
+                    }
+                }
+            }
         }
+
+        val editions: List<kotlinx.serialization.json.JsonElement> = runCatching {
+            val element = json.parseToJsonElement(responseStr)
+            if (element is kotlinx.serialization.json.JsonArray) {
+                val all = element.jsonArray.toList()
+                if (targetEditionId != null) {
+                    // Garder tous les tomes dont l'ID partage la même racine
+                    // Ex: "batman_annee_un_t1" → racine "batman_annee_un" → garde _t1, _t2, etc.
+                    val root = targetEditionId.replace(Regex("_t\\d+$|_v\\d+$|_n\\d+$|_vol\\d+$"), "")
+                    all.filter {
+                        val id = it.jsonObject["id"]?.jsonPrimitive?.content ?: ""
+                        id.startsWith(root)
+                    }
+                } else {
+                    all
+                }
+            } else {
+                val jsonObj = element.jsonObject
+                if (jsonObj.containsKey("sections")) {
+                    jsonObj["sections"]!!.jsonArray.flatMap {
+                        it.jsonObject["frenchEditions"]?.jsonArray?.toList() ?: emptyList()
+                    }
+                } else {
+                    jsonObj["frenchEditions"]?.jsonArray?.toList() ?: emptyList()
+                }
+            }
+        }.getOrElse { emptyList() }
+
         val hasVF = editions.isNotEmpty()
+        val firstEdition = if (hasVF) editions[0].jsonObject else null
 
         return SManga.create().apply {
-            title = if (hasVF) {
-                val firstEdition = editions[0].jsonObject
+            if (hasVF && firstEdition != null) {
                 val frTitle = firstEdition["french_title"]?.jsonPrimitive?.content ?: ""
-                frTitle.replace(Regex("\\s+(Tome|Volume|Vol\\.|T\\.)\\s+\\d+.*", RegexOption.IGNORE_CASE), "").trim()
+                title = frTitle.replace(Regex("\\s+(Tome|Volume|Vol\\.|T\\.)\\s+\\d+.*", RegexOption.IGNORE_CASE), "").trim()
+                thumbnail_url = firstEdition["id"]?.jsonPrimitive?.content?.let { "$apiUrl/api/issues/$it?w=400" }
+                description = "Comics disponible sur Comics Tracker (VF)"
+                status = SManga.UNKNOWN
             } else {
-                response.request.url.pathSegments
-                    .getOrNull(2)
-                    ?.replace("_", " ")
-                    ?.replaceFirstChar { it.uppercase() }
-                    ?: "Comics Tracker"
+                // Pas de VF : on garde la cover déjà chargée (ne pas mettre null !)
+                // On renseigne seulement description et status
+                description = "❌ Ce comic n'est pas disponible en version française sur Comics Tracker.\n\nSeules les éditions VF sont lisibles via cette extension."
+                status = SManga.LICENSED
             }
-            thumbnail_url = if (hasVF) {
-                val firstEdition = editions[0].jsonObject
-                val imageId = firstEdition["id"]?.jsonPrimitive?.content
-                if (imageId != null) "$apiUrl/api/issues/$imageId?w=400" else null
-            } else {
-                null
-            }
-            description = if (hasVF) {
-                "Comics disponible sur Comics Tracker (VF)"
-            } else {
-                "❌ Ce comic n'est pas disponible en version française sur Comics Tracker.\n\nSeules les éditions VF sont lisibles via cette extension."
-            }
-            status = if (hasVF) SManga.UNKNOWN else SManga.LICENSED
             initialized = true
         }
     }
@@ -517,18 +613,29 @@ class ComicsTracker : HttpSource() {
     // ======== LISTE DES CHAPITRES ========
 
     override fun chapterListRequest(manga: SManga): Request = when {
-        manga.url.startsWith("/article/") -> GET("$baseUrl/articles/${manga.url.removePrefix("/article/")}", headers)
-        manga.url.startsWith("/run/") -> GET("$apiUrl/api/runs/${manga.url.removePrefix("/run/")}", headers)
-        manga.url.startsWith("/reader/") -> {
-            val parts = manga.url.removePrefix("/reader/").trimEnd('/').split("/")
-            val seriesId = parts.lastOrNull()?.lowercase() ?: ""
-            GET("$apiUrl/api/series/$seriesId/issues", headers)
+        manga.url.startsWith("/article/") ->
+            GET("$baseUrl/articles/${manga.url.removePrefix("/article/")}", headers)
+        manga.url.startsWith("/run/") ->
+            GET("$apiUrl/api/runs/${manga.url.removePrefix("/run/")}", headers)
+        manga.url.startsWith("/period/") -> {
+            val periodId = manga.url.removePrefix("/period/").substringBefore("/edition/")
+            val editionId = manga.url.substringAfterLast("/edition/")
+            val newHeaders = headers.newBuilder().add("X-Edition-Id", editionId).build()
+            GET("$apiUrl/api/french-editions?periodName=$periodId", newHeaders)
         }
-        else -> GET("$apiUrl${manga.url}", headers)
+        manga.url.startsWith("/collection/") -> {
+            val collectionSlug = manga.url.removePrefix("/collection/").substringBefore("/")
+            val editionId = manga.url.substringAfterLast("/")
+            val newHeaders = headers.newBuilder().add("X-Edition-Id", editionId).build()
+            GET("$baseUrl/collection/$collectionSlug", newHeaders)
+        }
+        manga.url.startsWith("/series/") ->
+            GET("$apiUrl/api/series/${manga.url.removePrefix("/series/")}/issues", headers)
+        else ->
+            GET("$apiUrl${manga.url}", headers)
     }
 
     override fun chapterListParse(response: Response): List<SChapter> {
-        // Articles → pas de chapitres, juste un lien
         if (response.request.url.toString().contains("/articles/")) {
             val slug = response.request.url.pathSegments.last()
             return listOf(
@@ -540,50 +647,73 @@ class ComicsTracker : HttpSource() {
             )
         }
 
-        val jsonObj = runCatching {
-            json.parseToJsonElement(response.body.string()).jsonObject
-        }.getOrNull()
+        val responseStr = response.body.string()
+        val targetEditionId = response.request.header("X-Edition-Id")
 
-        val allEditions = if (jsonObj?.containsKey("sections") == true) {
-            jsonObj["sections"]!!.jsonArray
-                .flatMap { it.jsonObject["frenchEditions"]?.jsonArray?.toList() ?: emptyList() }
-        } else {
-            jsonObj?.get("frenchEditions")?.jsonArray?.toList() ?: emptyList()
+        // Si la réponse est une page HTML (collection hors-périodes), parser le __NEXT_DATA__
+        val isHtml = responseStr.trimStart().startsWith("<")
+        if (isHtml && targetEditionId != null) {
+            val document = Jsoup.parse(responseStr)
+            val nextDataJson = document.getElementById("__NEXT_DATA__")?.data() ?: return emptyList()
+            val collectionItems = mutableListOf<kotlinx.serialization.json.JsonObject>()
+            fun findItems(el: kotlinx.serialization.json.JsonElement) {
+                when (el) {
+                    is kotlinx.serialization.json.JsonArray -> el.forEach { findItems(it) }
+                    is kotlinx.serialization.json.JsonObject -> {
+                        if (el["id"]?.jsonPrimitive?.content == targetEditionId) collectionItems.add(el)
+                        el.values.forEach { findItems(it) }
+                    }
+                    else -> {}
+                }
+            }
+            findItems(json.parseToJsonElement(nextDataJson))
+            val item = collectionItems.firstOrNull() ?: return emptyList()
+            val link = item["link"]?.jsonPrimitive?.content ?: return emptyList()
+            val frTitle = item["french_title"]?.jsonPrimitive?.content ?: targetEditionId
+            val createdAt = item["created_at"]?.jsonPrimitive?.content ?: ""
+            // Une collection = un seul "chapitre" qui correspond au dossier complet
+            return listOf(
+                SChapter.create().apply {
+                    url = "/reader/$link"
+                    name = frTitle
+                    chapter_number = 1f
+                    date_upload = parseDate(createdAt)
+                },
+            )
         }
+
+        val allEditions: List<kotlinx.serialization.json.JsonElement> = runCatching {
+            val element = json.parseToJsonElement(responseStr)
+            if (element is kotlinx.serialization.json.JsonArray) {
+                val all = element.jsonArray.toList()
+                if (targetEditionId != null) {
+                    val root = targetEditionId.replace(Regex("_t\\d+$|_v\\d+$|_n\\d+$|_vol\\d+$"), "")
+                    all.filter {
+                        val id = it.jsonObject["id"]?.jsonPrimitive?.content ?: ""
+                        id.startsWith(root)
+                    }
+                } else {
+                    all
+                }
+            } else {
+                val jsonObj = element.jsonObject
+                if (jsonObj.containsKey("sections")) {
+                    jsonObj["sections"]!!.jsonArray.flatMap {
+                        it.jsonObject["frenchEditions"]?.jsonArray?.toList() ?: emptyList()
+                    }
+                } else {
+                    jsonObj["frenchEditions"]?.jsonArray?.toList() ?: emptyList()
+                }
+            }
+        }.getOrElse { emptyList() }
 
         if (allEditions.isEmpty()) return emptyList()
 
-        // Pour les séries classiques, filtrer les recueils multi-séries
-        // en comparant le dossier parent du link avec l'ID de la série
-        val requestSeriesId = response.request.url.pathSegments
-            .dropLastWhile { it == "issues" }
-            .lastOrNull() ?: ""
-
-        val editionsList = if (requestSeriesId.isNotBlank() && !response.request.url.toString().contains("/api/runs/")) {
-            val seriesWord = requestSeriesId
-                .replace(Regex("_\\d{4}$"), "")
-                .replace("_", " ")
-                .replace("-", " ")
-                .lowercase()
-
-            allEditions.filter { element ->
-                val link = element.jsonObject["link"]?.jsonPrimitive?.content ?: ""
-                val folderName = link.split("/").getOrNull(link.split("/").size - 2)
-                    ?.lowercase()
-                    ?.replace("_", " ")
-                    ?.replace("-", " ") ?: ""
-                folderName.contains(seriesWord)
-            }.ifEmpty { allEditions }
-        } else {
-            allEditions
-        }
-
-        return editionsList.mapIndexed { index, element ->
+        return allEditions.mapIndexed { index, element ->
             val edition = element.jsonObject
             val link = edition["link"]?.jsonPrimitive?.content ?: ""
             val frTitle = edition["french_title"]?.jsonPrimitive?.content ?: "Tome ${index + 1}"
             val createdAt = edition["created_at"]?.jsonPrimitive?.content ?: ""
-
             SChapter.create().apply {
                 url = "/reader/$link"
                 name = frTitle
@@ -596,29 +726,19 @@ class ComicsTracker : HttpSource() {
     // ======== PAGES D'UN CHAPITRE ========
 
     override fun pageListRequest(chapter: SChapter): Request {
-        // Article → renvoie vers la page web
         if (chapter.url.startsWith("/article/")) {
-            val slug = chapter.url.removePrefix("/article/")
-            return GET("$baseUrl/articles/$slug", headers)
+            return GET("$baseUrl/articles/${chapter.url.removePrefix("/article/")}", headers)
         }
-
         val link = chapter.url.removePrefix("/reader/")
-        val encodedPrefix = link
-            .replace(" ", "%20")
-            .replace("[", "%5B")
-            .replace("]", "%5D")
-            .replace(":", "%3A")
+        val encodedPrefix = link.replace(" ", "%20").replace("[", "%5B").replace("]", "%5D").replace(":", "%3A")
         return GET("$apiUrl/api/r2/list?prefix=$encodedPrefix", headers)
     }
 
     override fun pageListParse(response: Response): List<Page> {
-        // Article → une seule "page" avec l'URL de l'article
         if (response.request.url.toString().contains("/articles/")) {
             return listOf(Page(0, response.request.url.toString(), null))
         }
-
         val files = json.parseToJsonElement(response.body.string()).jsonArray
-
         return files
             .map { it.jsonPrimitive.content }
             .filter { path ->
@@ -636,18 +756,10 @@ class ComicsTracker : HttpSource() {
 
     override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
         if (chapter.url.startsWith("/article/")) {
-            val slug = chapter.url.removePrefix("/article/")
-            return Observable.just(
-                listOf(Page(0, "$baseUrl/articles/$slug", null)),
-            )
+            return Observable.just(listOf(Page(0, "$baseUrl/articles/${chapter.url.removePrefix("/article/")}", null)))
         }
-
         val link = chapter.url.removePrefix("/reader/")
-        val encodedPrefix = link
-            .replace(" ", "%20")
-            .replace("[", "%5B")
-            .replace("]", "%5D")
-            .replace(":", "%3A")
+        val encodedPrefix = link.replace(" ", "%20").replace("[", "%5B").replace("]", "%5D").replace(":", "%3A")
         return client.newCall(GET("$apiUrl/api/r2/list?prefix=$encodedPrefix", headers))
             .asObservableSuccess()
             .map { response -> pageListParse(response) }
@@ -662,20 +774,23 @@ class ComicsTracker : HttpSource() {
     // ======== UTILITAIRES ========
 
     private fun parseDate(dateStr: String): Long = runCatching {
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.FRENCH)
-            .parse(dateStr)?.time
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.FRENCH).parse(dateStr)?.time
     }.getOrNull() ?: 0L
 
     override fun getMangaUrl(manga: SManga): String = when {
-        manga.url.startsWith("/article/") -> "$baseUrl/articles/${manga.url.removePrefix("/article/")}"
-        manga.url.startsWith("/run/") -> "$baseUrl/run/${manga.url.removePrefix("/run/")}"
-        manga.url.startsWith("/reader/") -> "$baseUrl${manga.url}"
-        else -> {
-            val seriesId = manga.url
-                .removePrefix("/api/series/")
-                .removeSuffix("/issues")
-            "$baseUrl/issue/${seriesId}_1"
+        manga.url.startsWith("/article/") ->
+            "$baseUrl/articles/${manga.url.removePrefix("/article/")}"
+        manga.url.startsWith("/run/") ->
+            "$baseUrl/run/${manga.url.removePrefix("/run/")}"
+        manga.url.startsWith("/collection/") -> {
+            val collectionSlug = manga.url.removePrefix("/collection/").substringBefore("/")
+            "$baseUrl/collection/$collectionSlug"
         }
+        manga.url.startsWith("/period/") ->
+            "$baseUrl/issue/${manga.url.substringAfterLast("/edition/")}"
+        manga.url.startsWith("/series/") ->
+            "$baseUrl/issue/${manga.url.removePrefix("/series/")}_1"
+        else -> baseUrl
     }
 
     override fun getChapterUrl(chapter: SChapter): String = if (chapter.url.startsWith("/article/")) {
@@ -685,4 +800,12 @@ class ComicsTracker : HttpSource() {
         val encodedLink = link.replace(" ", "%20").replace("[", "%5B").replace("]", "%5D").replace(":", "%3A")
         "$baseUrl/read?mode=server&driveLink=$encodedLink"
     }
+
+    private fun normalizeAccents(input: String): String = java.text.Normalizer
+        .normalize(input, java.text.Normalizer.Form.NFD)
+        .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+        .replace("[^a-zA-Z0-9\\s]".toRegex(), " ")
+        .replace("\\s+".toRegex(), " ")
+        .lowercase()
+        .trim()
 }
